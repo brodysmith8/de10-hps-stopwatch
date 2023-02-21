@@ -31,10 +31,12 @@ Address     Switch  Bit Position    Function    Description
 #define SW_BASE             0xFF200040
 #define BUTTON_BASE         0xFF200050
 
-#define CLOCK_RATE_HZ   200000000 // scaling this to get time in hundredths of a second
+#define LOAD            0xFFFF // needs a load of at least 0xFFFF
+#define CLOCK_RATE_HZ   200000000 
 #define PRESCALER       255
 
-const int PRESCALED_CLOCK_RATE_HZ = CLOCK_RATE_HZ / (100 * (PRESCALER + 1));
+// 100 in denominator is for scaling to get rate in hundredths of a second
+const int PRESCALED_CLOCK_RATE_CHZ = CLOCK_RATE_HZ / (100 * (PRESCALER + 1));
 
 // SW0 is the bit at the base, SW1 is the next, etc
 volatile int* const switch_bank_ptr = (int *)(SW_BASE);
@@ -51,14 +53,17 @@ void write_buttons_to_buffer(char* buffer) {
 }
 
 volatile unsigned int* const current_value_ptr = (unsigned int *)(TIMER_BASE + 0x4);
+unsigned int accumulated_clock_cycles = 0;
+unsigned int overflows = 0; 
+unsigned int last = 0;
 void write_time_to_buffer(unsigned int* buffer) {
-    //printf("current time: %x\n", *current_value_ptr);
+    unsigned int current = *current_value_ptr;
+    if (current > last) { ++overflows; last = 0; }
+    accumulated_clock_cycles += current - last;
+    last = current; 
 
-    // clock cycles elapsed / prescaled clock rate
-    //printf("difference: %lu\n", (0xFFFFFFFF - *current_value_ptr));
-    unsigned int temp = (0xFFFFFFFF - *current_value_ptr) / PRESCALED_CLOCK_RATE_HZ;
-    //printf("%lu\n", temp);
-    *buffer = temp;
+    *buffer = (LOAD - current) / PRESCALED_CLOCK_RATE_CHZ;
+    hundredths_to_mm_ss_hh(buffer);
 }
 
 int timer_is_on = 0;
@@ -68,7 +73,7 @@ volatile unsigned short* const control_ptr = (unsigned short *)(TIMER_BASE+0x8);
 void start_timer(void) {
     if (timer_is_on) { return; }
     
-    *load_ptr = 0xFFFFFFFF; // load initial value
+    *load_ptr = LOAD; // load initial value
     *control_ptr = 0b1111111100000011; // set prescaler to 255, set auto bit to 1, set enable   
     
     timer_is_on = 1;
@@ -96,15 +101,15 @@ void clear_timer(void) {
 
     // clear
     stored_time = 0;
-    *load_ptr = 0xFFFFFFFF;
-    *current_value_ptr = 0x0; // not sure...
+    *load_ptr = LOAD;
+    *current_value_ptr = 0x0; 
 }
 
-int last_hh = -1;
+int last_hh = -1; 
 void hundredths_to_mm_ss_hh(unsigned int* time) {
-    int mm = *time / 6000 % 100;
-    int ss = *time / 100 % 60;
-    int hh = *time % 100;
+    int mm = (*time / 6000 + (overflows * (LOAD / PRESCALED_CLOCK_RATE_CHZ) / 6000)) % 100;
+    int ss = (*time / 100 + (overflows * (LOAD / PRESCALED_CLOCK_RATE_CHZ) / 100)) % 60;
+    int hh = (*time + (overflows * (LOAD / PRESCALED_CLOCK_RATE_CHZ))) % 100;
     if (hh == last_hh) { return; }
     printf("t: %u\n%d m : %d s ; %d hh\n\n", *time, mm, ss, hh);
     last_hh = hh;
@@ -134,15 +139,6 @@ int main(void) {
 
         write_time_to_buffer(&unsigned_time_hundredths);
 
-        hundredths_to_mm_ss_hh(&unsigned_time_hundredths);
-        //display_hex(time_mm_ss_hh);
-
-        //display_hex(&time_to_display_mm_ss_hh);
-        // display_hex(0);
-        // for (delay = DELAY_LENGTH; delay != 0; --delay) {}
-        
-        // // off
-        // display_hex(1000000);
         //for (delay = DELAY_LENGTH; delay != 0; --delay) {}
     }
 }
