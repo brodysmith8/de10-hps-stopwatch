@@ -94,24 +94,7 @@ void display_hex(int value)
         digits[i] = SEVEN_SEG_DISPLAY_PATTERN_LOOKUP[10 + (is_negative && i == idx)];
     }
 
-    // this is to print on one 7SD hex digits instead of decimal across multiple
-    // if (value > 9) {
-    //     if (value == 10) {
-    //         digits[0] = 0b01110111 << 24;
-    //     } else if (value == 11) {
-    //         digits[0] = SEVEN_SEG_DISPLAY_PATTERN_LOOKUP[8];
-    //     } else if (value == 12) {
-    //         digits[0] = 0b00111001 << 24;
-    //     } else if (value == 13) {
-    //         digits[0] = SEVEN_SEG_DISPLAY_PATTERN_LOOKUP[0];
-    //     } else if (value == 14) {
-    //         digits[0] = 0b01111001 << 24;
-    //     } else if (value == 15) {
-    //         digits[0] = 0b01110001 << 24;
-    //     }
-    // }
-
-    if (value == 0 || value > 15) {
+    if (value == 0) {
         digits[0] = SEVEN_SEG_DISPLAY_PATTERN_LOOKUP[0];   
     }
 

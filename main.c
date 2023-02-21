@@ -27,51 +27,122 @@ Address     Switch  Bit Position    Function    Description
 
 #include "seven_segment_display.h"
 
-#define PRIVATE_TIMER_BASE  0xFFFEC600
+#define TIMER_BASE          0xFFFEC600
 #define SW_BASE             0xFF200040
 #define BUTTON_BASE         0xFF200050
 
+#define CLOCK_RATE_HZ   200000000 // scaling this to get time in hundredths of a second
+#define PRESCALER       255
+
+const int PRESCALED_CLOCK_RATE_HZ = CLOCK_RATE_HZ / (100 * (PRESCALER + 1));
+
 // SW0 is the bit at the base, SW1 is the next, etc
 volatile int* const switch_bank_ptr = (int *)(SW_BASE);
-int read_switches(void) {
-    return *switch_bank_ptr; 
+void write_switches_to_buffer(int* buffer) {
+    *buffer = *switch_bank_ptr;
 }
 
 volatile int* const button_bank_ptr = (int *)(BUTTON_BASE);
-void read_buttons_to_buffer(char* buffer) {
+void write_buttons_to_buffer(char* buffer) {
     *buffer = *button_bank_ptr & 0b1000;
     *(buffer + 0x1) = *button_bank_ptr & 0b0100;
     *(buffer + 0x2) = *button_bank_ptr & 0b0010;
     *(buffer + 0x3) = *button_bank_ptr & 0b0001;
 }
 
+volatile unsigned int* const current_value_ptr = (unsigned int *)(TIMER_BASE + 0x4);
+void write_time_to_buffer(unsigned int* buffer) {
+    //printf("current time: %x\n", *current_value_ptr);
+
+    // clock cycles elapsed / prescaled clock rate
+    //printf("difference: %lu\n", (0xFFFFFFFF - *current_value_ptr));
+    unsigned int temp = (0xFFFFFFFF - *current_value_ptr) / PRESCALED_CLOCK_RATE_HZ;
+    //printf("%lu\n", temp);
+    *buffer = temp;
+}
+
+int timer_is_on = 0;
+volatile unsigned int* const load_ptr = (unsigned int *)(TIMER_BASE);
+volatile unsigned short* const control_ptr = (unsigned short *)(TIMER_BASE+0x8);
+
+void start_timer(void) {
+    if (timer_is_on) { return; }
+    
+    *load_ptr = 0xFFFFFFFF; // load initial value
+    *control_ptr = 0b1111111100000011; // set prescaler to 255, set auto bit to 1, set enable   
+    
+    timer_is_on = 1;
+}
+
+void stop_timer(void) {
+    if (!timer_is_on) { return; }
+    
+    // shut off timer
+    *control_ptr ^= 0b1; // sets the last 1 (the enable bit) to 0 
+
+    timer_is_on = 0;
+}
+
+unsigned int stored_time = 0;
+void lap_timer(void) {
+    if (!timer_is_on) { return; }
+
+    write_time_to_buffer(&stored_time);
+}
+
+void clear_timer(void) {
+    if (!timer_is_on) { return; }
+    stop_timer();
+
+    // clear
+    stored_time = 0;
+    *load_ptr = 0xFFFFFFFF;
+    *current_value_ptr = 0x0; // not sure...
+}
+
+int last_hh = -1;
+void hundredths_to_mm_ss_hh(unsigned int* time) {
+    int mm = *time / 6000 % 100;
+    int ss = *time / 100 % 60;
+    int hh = *time % 100;
+    if (hh == last_hh) { return; }
+    printf("t: %u\n%d m : %d s ; %d hh\n\n", *time, mm, ss, hh);
+    last_hh = hh;
+    //return retval;
+}
+
 volatile int DELAY_LENGTH = 700000;
 int main(void) {
-    //display_hex(-345434);
-    int num;
-    int display_mode = 0;
-    volatile int delay_count = 0;
+    unsigned int unsigned_time_hundredths;
+    int time_mm_ss_hh = 0;
+    int current_time_or_lap_time = 0;
+    volatile int delay = 0;
+
+    display_hex(0);
 
     // bit 3, bit 2, bit 1, bit 0
     // clear, lap,   stop,  start
     char control_bits[4] = {0};
     while(1) {
-        // on 
-        num = read_switches();
-        if (num != 0) {
-            display_mode = 1;
-        } else {
-            display_mode = 0;
-        }
+        write_switches_to_buffer(&current_time_or_lap_time);
+        write_buttons_to_buffer(&control_bits[0]);
 
-        read_buttons_to_buffer(&control_bits[0]);
+        if (control_bits[0]) { start_timer(); }
+        else if (control_bits[1]) { stop_timer(); }
+        else if (control_bits[2]) { lap_timer(); }
+        else if (control_bits[3]) { clear_timer(); }
 
-        display_hex(num);
+        write_time_to_buffer(&unsigned_time_hundredths);
 
-        for (delay_count = DELAY_LENGTH; delay_count != 0; --delay_count) {}
+        hundredths_to_mm_ss_hh(&unsigned_time_hundredths);
+        //display_hex(time_mm_ss_hh);
+
+        //display_hex(&time_to_display_mm_ss_hh);
+        // display_hex(0);
+        // for (delay = DELAY_LENGTH; delay != 0; --delay) {}
         
-        // off
-        display_hex(1000000);
-        for (delay_count = DELAY_LENGTH; delay_count != 0; --delay_count) {}
+        // // off
+        // display_hex(1000000);
+        //for (delay = DELAY_LENGTH; delay != 0; --delay) {}
     }
 }
