@@ -27,6 +27,10 @@ Address     Switch  Bit Position    Function    Description
 
 #include "seven_segment_display.h"
 
+/* references
+[1] DE10 Standard Datasheet - https://ftp.intel.com/Public/Pub/fpgaup/pub/Intel_Material/18.1/Computer_Systems/DE10-Standard/DE10-Standard_Computer_ARM.pdf 
+*/
+
 #define TIMER_BASE          0xFFFEC600
 #define SW_BASE             0xFF200040
 #define BUTTON_BASE         0xFF200050
@@ -34,6 +38,7 @@ Address     Switch  Bit Position    Function    Description
 #define LOAD            0xFFFF // needs a load of at least 0xFFFF
 #define CLOCK_RATE_HZ   200000000 
 #define PRESCALER       255
+#define CONTROL_CFG     0b1111111100000011 // string for control register [1, pg. 4]
 
 // 100 in denominator is for scaling to get rate in hundredths of a second
 const int PRESCALED_CLOCK_RATE_CHZ = CLOCK_RATE_HZ / (100 * (PRESCALER + 1));
@@ -52,13 +57,31 @@ void write_buttons_to_buffer(char* buffer) {
     *(buffer + 0x3) = *button_bank_ptr & 0b0001;
 }
 
+int timer_is_on = 0;
+volatile unsigned int* const load_ptr = (unsigned int *)(TIMER_BASE);
 volatile unsigned int* const current_value_ptr = (unsigned int *)(TIMER_BASE + 0x4);
+volatile unsigned int* const control_ptr = (unsigned int *)(TIMER_BASE+0x8);
+volatile unsigned int* const interrupt_status_ptr = (unsigned int *)(TIMER_BASE+0xC);
+
 unsigned int accumulated_clock_cycles = 0;
 unsigned int overflows = 0; 
 unsigned int last = 0;
+unsigned int current = 0;
 void write_time_to_buffer(unsigned int* buffer) {
-    unsigned int current = *current_value_ptr;
-    if (current > last) { ++overflows; last = 0; }
+    //printf("control: %d\n",*control_ptr);
+    if (*interrupt_status_ptr) { 
+        printf("overflow!! %d \n",0);
+
+        *interrupt_status_ptr = 0b1; // write a 1 to overflow bit to reset. This starts the timer again
+
+        ++overflows; 
+        last = 0; 
+    }
+
+    /*  3rd bit from end of control register tells us if there is an overflow [1, pg. 3] */
+    
+    current = *current_value_ptr;
+
     accumulated_clock_cycles += current - last;
     last = current; 
 
@@ -66,15 +89,11 @@ void write_time_to_buffer(unsigned int* buffer) {
     hundredths_to_mm_ss_hh(buffer);
 }
 
-int timer_is_on = 0;
-volatile unsigned int* const load_ptr = (unsigned int *)(TIMER_BASE);
-volatile unsigned short* const control_ptr = (unsigned short *)(TIMER_BASE+0x8);
-
 void start_timer(void) {
     if (timer_is_on) { return; }
     
     *load_ptr = LOAD; // load initial value
-    *control_ptr = 0b1111111100000011; // set prescaler to 255, set auto bit to 1, set enable   
+    *control_ptr = CONTROL_CFG; // set prescaler to 255, set auto bit to 1, set enable   
     
     timer_is_on = 1;
 }
@@ -107,6 +126,7 @@ void clear_timer(void) {
 
 int last_hh = -1; 
 void hundredths_to_mm_ss_hh(unsigned int* time) {
+    //printf("overflows: %d\n", overflows);
     int mm = (*time / 6000 + (overflows * (LOAD / PRESCALED_CLOCK_RATE_CHZ) / 6000)) % 100;
     int ss = (*time / 100 + (overflows * (LOAD / PRESCALED_CLOCK_RATE_CHZ) / 100)) % 60;
     int hh = (*time + (overflows * (LOAD / PRESCALED_CLOCK_RATE_CHZ))) % 100;
@@ -122,6 +142,7 @@ int main(void) {
     int time_mm_ss_hh = 0;
     int current_time_or_lap_time = 0;
     volatile int delay = 0;
+    *current_value_ptr = LOAD;
 
     display_hex(0);
 
