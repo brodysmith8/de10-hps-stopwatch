@@ -51,7 +51,7 @@ void write_to_hex(unsigned int* to_write) {
 } 
 
 // Input is a 32 bit value in decimal
-void display_hex(int value)
+void display_time(int value)
 {
     unsigned int digits[6] = {0};
     unsigned char idx = 0;
@@ -89,14 +89,20 @@ void display_hex(int value)
 
     // make leading places nothing, or add the negative sign just before
     // the first digit
+    // for (int i = 5; i > idx - 1; i--) {
+    //     // silly 
+    //     digits[i] = SEVEN_SEG_DISPLAY_PATTERN_LOOKUP[10 + (is_negative && i == idx)];
+    // }
+
+    // makes leading places 0
     for (int i = 5; i > idx - 1; i--) {
         // silly 
-        digits[i] = SEVEN_SEG_DISPLAY_PATTERN_LOOKUP[10 + (is_negative && i == idx)];
+        digits[i] = SEVEN_SEG_DISPLAY_PATTERN_LOOKUP[0];
     }
 
-    if (value == 0) {
-        digits[0] = SEVEN_SEG_DISPLAY_PATTERN_LOOKUP[0];   
-    }
+    // if (value == 0) {
+    //     digits[0] = SEVEN_SEG_DISPLAY_PATTERN_LOOKUP[0];   
+    // }
 
     write_to_hex(digits);
     return;
